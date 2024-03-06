@@ -16,7 +16,7 @@ from pprint import pp as pprint, pformat
 import sqlite3
 import sys
 
-SCHEMA = {
+SCHEMA: dict[str, tuple[tuple[str, ...], ...]] = {
     'list': (
         ('id',          'INTEGER', 'PRIMARY KEY'),
         ('name',        'TEXT'),
@@ -31,7 +31,7 @@ SCHEMA = {
     ),
 }
 
-global con
+con: sqlite3.Connection
 
 def namedtuple_factory(cursor, row):
     fields = [column[0] for column in cursor.description]
@@ -183,55 +183,59 @@ def delete_list(id: int) -> None:
     with con:
         con.execute('''DELETE FROM list WHERE id = ?''', (id, ))
 
-class _Menu:
-    '''Container for some functions'''
-    def list_lists(_):
+class Menu:
+    '''Menu options and error-handling wrappers'''
+    def _list_lists(_):
         list_lists()
-    def show_list(_):
+    def _show_list(_):
         show_list(select_list()[0])
-    def show_item(_):
+    def _show_item(_):
         try:
             show_item(int(input('item number: ')))
         except ValueError as e:
             raise RecordError(*e.args) from e
-    def add_list(_):
+    def _add_list(_):
         add_list(input('list name: '))
-    def add_item(_):
+    def _add_item(_):
         add_item(**define_item_interactive())
-    def delete_item(_):
+    def _delete_item(_):
         try:
             delete_item(int(input('item number: ')))
         except ValueError as e:
             raise RecordError(*e.args) from e
-    def delete_list(_):
+    def _delete_list(_):
         delete_list(select_list()[0])
-    def reset(_):
+    def _reset(_):
         reset()
-    def exit(_):
+    def _exit(_):
         sys.exit()
-menu_funcs = _Menu()
 
-def menu() -> callable:
-    actions = {i: tup for i, tup in enumerate(
-        (
-            ('list lists',       menu_funcs.list_lists ),
-            ('show list',        menu_funcs.show_list  ),
-            ('show item detail', menu_funcs.show_item  ),
-            ('create list',      menu_funcs.add_list   ),
-            ('create item',      menu_funcs.add_item   ),
-            ('delete item',      menu_funcs.delete_item),
-            ('delete list',      menu_funcs.delete_list),
-            ('reset',            menu_funcs.reset      ),
-            ('exit',             menu_funcs.exit       ),
-        ), start=1)
-    }
-    print()
-    print(*(f'{i}: {action}' for i, (action, _) in actions.items()), sep='\n')
-    action = int(input('action: '))
-    try:
-        return actions[action][1]
-    except KeyError:
-        raise MenuError('invalid option #')
+    def __init__(self):
+        self._actions: dict[int, tuple[str, callable]] = {i: tup for i, tup in enumerate(
+            (
+                ('list lists',       self._list_lists ),
+                ('show list',        self._show_list  ),
+                ('show item detail', self._show_item  ),
+                ('create list',      self._add_list   ),
+                ('create item',      self._add_item   ),
+                ('delete item',      self._delete_item),
+                ('delete list',      self._delete_list),
+                ('reset',            self._reset      ),
+                ('exit',             self._exit       ),
+            ), start=1)
+        }
+
+    def run(self) -> callable:
+        print()
+        print(*(f'{i}: {action}'
+                for i, (action, _)
+                in self._actions.items()
+               ), sep='\n')
+        action = int(input('action: '))
+        try:
+            return self._actions[action][1]
+        except KeyError as e:
+            raise MenuError('invalid option #') from e
 
 class MenuError(LookupError):
     '''User selected invald menu option.'''
@@ -248,10 +252,11 @@ def main():
     #con.row_factory = sqlite3.Row
     con.row_factory = namedtuple_factory
     initialize(schema=SCHEMA)
+    menu = Menu()
     try:
         while True:
             try:
-                func = menu()
+                func = menu.run()
                 func()
             except (MenuError, RecordError) as e:
                 print(f'Error: {e}')
